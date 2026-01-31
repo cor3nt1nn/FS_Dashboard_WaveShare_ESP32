@@ -19,13 +19,9 @@
  * Date: January 31th, 2026
  */
 
-// ================================================================================
-// INCLUDES
-// ================================================================================
-
 #include <Arduino.h>
-#include <lvgl.h>                    // Graphics library
-#include <LovyanGFX.hpp>             // Hardware-accelerated display driver
+#include <lvgl.h>
+#include <LovyanGFX.hpp>
 #include <lgfx/v1/platforms/esp32s3/Bus_RGB.hpp>
 #include <lgfx/v1/platforms/esp32s3/Panel_RGB.hpp>
 #include <esp_heap_caps.h>
@@ -45,14 +41,14 @@
 // Energy calculation constants
 constexpr int32_t ALPHA_FIXED = 154;           // Smoothing filter weight (15%)
 constexpr int32_t INV_ALPHA_FIXED = 870;       // Inverse filter weight (85%)
-constexpr int32_t MIN_DISTANCE_M = 500;        // Min distance before calculating consumption
+constexpr int32_t MIN_DISTANCE_M = 800;        // Min distance before calculating consumption
 constexpr int32_t DEFAULT_CONSUMPTION = 41000; // Default consumption (410 Wh/km)
 constexpr int32_t SPEED_THRESHOLD = 10;        // Speed threshold to consider car moving (1 km/h)
 constexpr int32_t MIN_CONSUMPTION = 10;        // Min consumption to avoid division by zero
 constexpr int32_t DELTA_CLAMP_M = 99999;       // Max delta value to prevent overflow
 
 // ================================================================================
-// DISPLAY HARDWARE CONFIGURATION
+// DISPLAY HARDWARE CONFIGURATION (MUST NOT TO BE MODIFIED)
 // ================================================================================
 
 /**
@@ -127,7 +123,7 @@ LGFX lcd;
 
 // LVGL display buffers
 static lv_disp_draw_buf_t draw_buf;
-static lv_color_t disp_draw_buf[800*80];
+static lv_color_t disp_draw_buf[800*120];
 static lv_disp_drv_t disp_drv;
 
 void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
@@ -138,18 +134,10 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
   lv_disp_flush_ready(disp);
 }
 
-// ================================================================================
-// GLOBAL OBJECTS
-// ================================================================================
-
-CANSocket can;                                // CAN communication handler
-CarStateUI car_ui(can.state());               // UI update manager
+CANSocket can;
+CarStateUI car_ui(can.state());
 CANLogger canLogger;
 static int32_t filteredConsumption_cWhKm = 0; // Smoothed consumption value
-
-// ================================================================================
-// CAN MESSAGE HANDLER
-// ================================================================================
 
 /**
  * Processes incoming CAN messages and updates vehicle state
@@ -227,13 +215,11 @@ void handleCANFrame(const twai_message_t &msg, CarState &carState) {
             value_u16 = (msg.data[1] << 8) | msg.data[0];
             carState.setInverterTemperature(value_u16);
             break;
+        default:
+            break;
     }
     carState.updateTimestamp();
 }
-
-// ================================================================================
-// ENERGY CALCULATION MODULE
-// ================================================================================
 
 /**
  * Core energy management function that runs every 100ms
@@ -326,10 +312,6 @@ void updateEnergyAndDelta() {
     carState.setLastCalcMs(now);
 }
 
-// ================================================================================
-// RTOS TASKS (Parallel execution threads)
-// ================================================================================
-
 // ##############################################################################################
 // ##############  TO DELETE WHEN THE FIRST TEST WILL HAVE RECORDED DATAS   #####################
 // ##############################################################################################
@@ -381,7 +363,7 @@ void fakeCANTask(void *pvParameters) {
     uint32_t phase_start_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
 
     // Simulation constants
-    const float dt = 0.02f;                         // Time step (20ms)
+    const float dt = 0.01f;                         // Time step (20ms)
     const float throttle_ramp = 1000.0f / 2.0f * dt; // Throttle ramp rate
     const float brake_ramp = 1000.0f / 3.0f * dt;    // Brake ramp rate
     const float temp_rate = 0.005f;                  // Temperature rise rate
@@ -550,10 +532,14 @@ void fakeCANTask(void *pvParameters) {
         msg.data[1] = (temp_inverter_dC >> 8) & 0xFF;
         handleCANFrame(msg, carState);
 
-        vTaskDelay(pdMS_TO_TICKS(20));  // 50 Hz update rate
+        vTaskDelay(pdMS_TO_TICKS(10));  // 50 Hz update rate
     }
 }
 
+
+// ================================================================================
+// RTOS TASKS (Parallel execution threads)
+// ================================================================================
 
 /**
  * CAN Task that handles CAN bus reception and storage in vehicle state
@@ -592,7 +578,7 @@ void loggerTask(void *pvParameters) {
 }
 
 /**
- * UI Task that updates all display elements every 10ms
+ * UI Task that updates all display elements every 100ms
  * Priority: 1 | Core: 0 | Stack: 8KB
  */
 void uiTask(void *pvParameters) {
@@ -610,7 +596,7 @@ void uiTask(void *pvParameters) {
     car_ui.updateConsumptionUI();
     car_ui.updateDistanceUI();
     lv_timer_handler();
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(pdMS_TO_TICKS(100));
   }
 }
 
@@ -625,9 +611,10 @@ void setup()
     // Initialize display hardware
     lcd.begin();
     lcd.fillScreen(TFT_BLACK);
+
     // Initialize LVGL
     lv_init();
-    lv_disp_draw_buf_init(&draw_buf, disp_draw_buf, NULL, 80 * 800);
+    lv_disp_draw_buf_init(&draw_buf, disp_draw_buf, NULL, 120 * 800);
     lv_disp_drv_init(&disp_drv);
     disp_drv.hor_res = 800;
     disp_drv.ver_res = 480;
@@ -636,7 +623,7 @@ void setup()
     disp_drv.draw_buf = &draw_buf;
     lv_disp_drv_register(&disp_drv);
 
-    Put On the Backlight of the screen.
+    // Put On the Backlight of the screen.
     #ifdef TFT_BL
       pinMode(TFT_BL, OUTPUT);
       digitalWrite(TFT_BL, HIGH);

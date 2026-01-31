@@ -11,7 +11,7 @@ typedef std::function<void(const twai_message_t &msg, CarState &state)>
 
 class CANSocket {
 public:
-  CANSocket(gpio_num_t tx = GPIO_NUM_15, gpio_num_t rx = GPIO_NUM_16,
+  CANSocket(gpio_num_t tx = GPIO_NUM_20, gpio_num_t rx = GPIO_NUM_19,
             twai_timing_config_t timing = TWAI_TIMING_CONFIG_500KBITS());
 
   bool begin();

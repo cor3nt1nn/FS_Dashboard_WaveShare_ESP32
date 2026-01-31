@@ -9,13 +9,13 @@ CarStateUI::CarStateUI(CarState &state) :
     voltageField{-1, 0, 200, 1.0f}, // refresh voltage label every 200 ms or 1V.
     amperageField{-1, 0, 200, 1.0f}, // refresh amperage label every 200 ms or 1A.
     batteryLevelField{-1, 0, 2000, 1.0f}, // refresh battery SOC label every 2s or 1%.
-    batteryTempField{-1, 0, 5000, 1.0f}, // refresh battery temperature label every 5s or 1°C.
-    throttleField{-1, 0, 200, 1.0f}, // refresh throttle potentiometer label every 200ms or 1%.
-    brakeField{-1, 0, 200, 1.0f}, // refresh brake potentiometer label every 200ms or 1%.
-    speedField{-1, 0, 200, 1.0f}, // refresh speed label every 200ms or 1kmh.
+    batteryTempField{-1, 0, 3000, 1.0f}, // refresh battery temperature label every 3s or 1°C.
+    throttleField{-1, 0, 100, 1.0f}, // refresh throttle potentiometer label every 100ms or 1%.
+    brakeField{-1, 0, 100, 1.0f}, // refresh brake potentiometer label every 100ms or 1%.
+    speedField{-1, 0, 500, 1.0f}, // refresh speed label every 500ms or 1kmh.
     tripMeterField{-1, 0, 1000, 0.095f}, // refresh tripmeter label every second or 0.095km.
-    deltaField{-1, 0, 500, 0.01f}, // refresh trip delta every 500ms or +-0.01km .
-    consumField{-1, 0, 1000, 0.1f}, // refresh consumption label every second or 0.1Wh/km.
+    deltaField{-1, 0, 2000, 0.1f}, // refresh trip delta every 2s or +-0.01km .
+    consumField{-1, 0, 2000, 0.1f}, // refresh consumption label every two seconds or 0.1Wh/km.
     engineTempField{-1, 0, 2000, 1.0f}, // refresh engine temperature label every 2s or 1°C.
     inverterTempField{-1, 0, 2000, 1.0f} // refresh inverter temperature label every 2s or 1°C.
 {}
