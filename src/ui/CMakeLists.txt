@@ -1,0 +1,14 @@
+SET(SOURCES screens/ui_Main_Screen.c
+    ui.c
+    components/ui_comp_hook.c
+    ui_helpers.c
+    images/ui_img_batterytemp_png.c
+    fonts/ui_font_deltafont.c
+    fonts/ui_font_kmfont.c
+    fonts/ui_font_letterfont.c
+    fonts/ui_font_speedfont.c
+    fonts/ui_font_temperaturefont.c
+    fonts/ui_font_unitfont.c
+    fonts/ui_font_voltagefont.c)
+
+add_library(ui ${SOURCES})
