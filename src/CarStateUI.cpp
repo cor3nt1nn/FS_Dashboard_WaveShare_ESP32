@@ -106,6 +106,9 @@ void CarStateUI::updateAmperageUI() {
     return;
   }
 
+  // To save multiple graphics updates if unnecessary.
+  // Note: In fact the graphical bar is set to range 0 to 600 because it can't go to the negative.
+  // So, -300 is equivalent to 0 and 300 to 600 that's why we add 300.
   if(amperageField.lastValue*amperage_int < 0 || amperageField.lastUpdateMs==0){
       if(amperage_int < 0){
           lv_bar_set_value(ui_amperage, 0, LV_ANIM_ON);
@@ -249,7 +252,8 @@ void CarStateUI::updateDeltaUI() {
   int delta_int = abs((int)delta_km);
   int delta_dec = (int)(fabs(delta_km - delta_int) * 100.0f + 0.5f) % 100;
 
-
+  // Note: In fact the graphical arc is set to range 0 to 400 because it can't go to the negative.
+  // So, 0 is equivalent to -20km and 400 to +20km that's why we add 200.
   lv_label_set_text_fmt(ui_deltalabel, "%d.%02d", delta_int, delta_dec);
   lv_arc_set_value(ui_deltaarc, (delta/100) + 200);
   updateDeltaColor(delta);

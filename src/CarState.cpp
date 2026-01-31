@@ -1,6 +1,6 @@
 #include "CarState.hpp"
 
-// ========== BatteryElectrical - Setters/Getters individuels ==========
+// ========== BatteryElectrical - Setters/Getters ==========
 void CarState::setBatteryVoltage(uint16_t voltage_cV) {
     if (batteryElec.tryLock(pdMS_TO_TICKS(10))) {
         batteryElec.voltage_cV = voltage_cV;
@@ -69,7 +69,7 @@ int32_t CarState::getBatteryPowerOutput() {
     return value;
 }
 
-// ========== BatteryElectrical - Setter/Getter de module complet ==========
+// ========== BatteryElectrical - Setter/Getter ==========
 void CarState::setBatteryElectrical(uint16_t voltage_cV, int16_t amperage_cA, int32_t powerOutput_mW) {
     if (batteryElec.tryLock(pdMS_TO_TICKS(10))) {
         batteryElec.voltage_cV = voltage_cV;
@@ -94,7 +94,7 @@ bool CarState::getBatteryElectrical(uint16_t &voltage_cV, int16_t &amperage_cA, 
     return false;
 }
 
-// ========== BatteryState - Setters/Getters individuels ==========
+// ========== BatteryState - Setters/Getters  ==========
 void CarState::setBatterySOC(uint16_t soc_permil) {
     if (batteryState.tryLock(pdMS_TO_TICKS(10))) {
         batteryState.soc_permil = soc_permil;
@@ -163,7 +163,7 @@ int64_t CarState::getBatteryEnergyAvailable() {
     return value;
 }
 
-// ========== BatteryState - Setter/Getter de module complet ==========
+// ========== BatteryState - Setter/Getter ==========
 void CarState::setBatteryState(uint16_t soc_permil, int16_t temperature_dC, int64_t energyAvailable_mWh) {
     if (batteryState.tryLock(pdMS_TO_TICKS(10))) {
         batteryState.soc_permil = soc_permil;
@@ -188,7 +188,7 @@ bool CarState::getBatteryState(uint16_t &soc_permil, int16_t &temperature_dC, in
     return false;
 }
 
-// ========== TemperatureData - Setters/Getters individuels ==========
+// ========== TemperatureData - Setters/Getters  ==========
 void CarState::setEngineTemperature(uint16_t engine_dC) {
     if (temps.tryLock(pdMS_TO_TICKS(10))) {
         temps.engine_dC = engine_dC;
@@ -241,7 +241,7 @@ int CarState::getInverterTemperature() {
     return value;
 }
 
-// ========== TemperatureData - Setter/Getter de module complet ==========
+// ========== TemperatureData - Setter/Getter ==========
 void CarState::setTemperatures(uint16_t engine_dC, uint16_t inverter_dC) {
     if (temps.tryLock(pdMS_TO_TICKS(10))) {
         temps.engine_dC = engine_dC;
@@ -264,7 +264,7 @@ bool CarState::getTemperatures(uint16_t &engine_dC, uint16_t &inverter_dC, int &
     return false;
 }
 
-// ========== EnergyData - Setters/Getters individuels ==========
+// ========== EnergyData - Setters/Getters ==========
 void CarState::setTripDistance(int32_t tripDistance_m) {
     if (energy.tryLock(pdMS_TO_TICKS(10))) {
         energy.tripDistance_m = tripDistance_m;
@@ -381,7 +381,7 @@ float CarState::getEnergyDelta() {
     return value;
 }
 
-// ========== EnergyData - Setter/Getter de module complet ==========
+// ========== EnergyData - Setter/Getter  ==========
 void CarState::setEnergyData(int32_t tripDistance_m, int64_t energyConsumed_mWh,
                    int64_t energyRegenerated_mWh, int32_t energyConsumption_cWhKm,
                    int32_t rangeRemaining_m, int32_t energyDelta_cm) {

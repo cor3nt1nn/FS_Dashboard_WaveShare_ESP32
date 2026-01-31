@@ -204,7 +204,7 @@ struct CarState {
     int32_t getEnergyDelta_cm();
     float getEnergyDelta();
 
-    // ========== EnergyData - Setter/Getter de module complet ==========
+    // ========== EnergyData - Setter/Getter ==========
     void setEnergyData(int32_t tripDistance_m, int64_t energyConsumed_mWh,
                        int64_t energyRegenerated_mWh, int32_t energyConsumption_cWhKm,
                        int32_t rangeRemaining_m, int32_t energyDelta_cm);
