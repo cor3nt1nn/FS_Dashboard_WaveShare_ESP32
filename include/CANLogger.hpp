@@ -6,8 +6,8 @@
 #include <atomic>
 
 #define LOG_QUEUE_SIZE 500 // Maximum number of CAN frames that can be queued before writing to SD card
-#define FLUSH_INTERVAL_MS 2000 // Interval in milliseconds between two SD card flushes (2 seconds)
-#define FILE_ROTATION_MS 420000 // Time before creating a new log file (7 minutes)
+#define FLUSH_INTERVAL_MS 1500 // Interval in milliseconds between two SD card flushes (2 seconds)
+#define FILE_ROTATION_MS 300000 // Time before creating a new log file (5 minutes)
 #define MAX_BATCH_SIZE 50 // Maximum number of entries to process in one batch operation
 
 // Structure representing a single CAN message to be logged

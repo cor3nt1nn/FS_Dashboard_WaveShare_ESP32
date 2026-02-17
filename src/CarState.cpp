@@ -112,8 +112,8 @@ uint16_t CarState::getBatterySOC_permil() {
     return value;
 }
 
-int CarState::getBatterySOC() {
-    int value = 0;
+uint8_t CarState::getBatterySOC() {
+    uint8_t value = 0;
     if (batteryState.tryLock(pdMS_TO_TICKS(10))) {
         value = batteryState.soc;
         batteryState.unlock();
@@ -138,8 +138,8 @@ int16_t CarState::getBatteryTemperature_dC() {
     return value;
 }
 
-int CarState::getBatteryTemperature() {
-    int value = 0;
+int16_t CarState::getBatteryTemperature() {
+    int16_t value = 0;
     if (batteryState.tryLock(pdMS_TO_TICKS(10))) {
         value = batteryState.temperature;
         batteryState.unlock();
@@ -175,7 +175,7 @@ void CarState::setBatteryState(uint16_t soc_permil, int16_t temperature_dC, int6
     }
 }
 
-bool CarState::getBatteryState(uint16_t &soc_permil, int16_t &temperature_dC, int64_t &energyAvailable_mWh, int &soc, int &temperature) {
+bool CarState::getBatteryState(uint16_t &soc_permil, int16_t &temperature_dC, int64_t &energyAvailable_mWh, uint8_t &soc, int16_t &temperature) {
     if (batteryState.tryLock(pdMS_TO_TICKS(10))) {
         soc_permil = batteryState.soc_permil;
         temperature_dC = batteryState.temperature_dC;
@@ -206,8 +206,8 @@ uint16_t CarState::getEngineTemperature_dC() {
     return value;
 }
 
-int CarState::getEngineTemperature() {
-    int value = 0;
+uint8_t CarState::getEngineTemperature() {
+    uint8_t value = 0;
     if (temps.tryLock(pdMS_TO_TICKS(10))) {
         value = temps.engine;
         temps.unlock();
@@ -232,8 +232,8 @@ uint16_t CarState::getInverterTemperature_dC() {
     return value;
 }
 
-int CarState::getInverterTemperature() {
-    int value = 0;
+uint8_t CarState::getInverterTemperature() {
+    uint8_t value = 0;
     if (temps.tryLock(pdMS_TO_TICKS(10))) {
         value = temps.inverter;
         temps.unlock();
@@ -252,7 +252,7 @@ void CarState::setTemperatures(uint16_t engine_dC, uint16_t inverter_dC) {
     }
 }
 
-bool CarState::getTemperatures(uint16_t &engine_dC, uint16_t &inverter_dC, int &engine, int &inverter) {
+bool CarState::getTemperatures(uint16_t &engine_dC, uint16_t &inverter_dC, uint8_t &engine, uint8_t &inverter) {
     if (temps.tryLock(pdMS_TO_TICKS(10))) {
         engine_dC = temps.engine_dC;
         inverter_dC = temps.inverter_dC;

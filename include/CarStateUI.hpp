@@ -40,10 +40,10 @@ private:
     uint32_t lastInverterTempColor = 0x00FF00;
     bool lastBatteryTempOverheated = false;
 
-    void updateBatteryLevelColor(int level);
-    void updateBatteryTempColor(int temp);
-    void updateEngineTempColor(int temp);
-    void updateInverterTempColor(int temp);
+    void updateBatteryLevelColor(uint8_t level);
+    void updateBatteryTempColor(int16_t temp);
+    void updateEngineTempColor(uint8_t temp);
+    void updateInverterTempColor(uint8_t temp);
     void updateDeltaColor(float delta);
 
 public:

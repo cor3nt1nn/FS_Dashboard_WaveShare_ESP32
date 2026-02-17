@@ -13,9 +13,9 @@ struct CarState {
     std::atomic<uint16_t> brakePosition_permil{0};
     std::atomic<uint16_t> carSpeed_dkmh{0};
 
-    std::atomic<int> throttlePosition{0};
-    std::atomic<int> brakePosition{0};
-    std::atomic<int> carSpeed{0};
+    std::atomic<uint8_t> throttlePosition{0};
+    std::atomic<uint8_t> brakePosition{0};
+    std::atomic<uint8_t> carSpeed{0};
 
     std::atomic<uint32_t> lastUpdateMs{0};
     std::atomic<uint32_t> lastCalcMs{0};
@@ -42,8 +42,8 @@ struct CarState {
         int16_t temperature_dC{0};
         int64_t energyAvailable_mWh{0};
 
-        int soc{0};
-        int temperature{0};
+        uint8_t soc{0};
+        int16_t temperature{0};
 
         SemaphoreHandle_t mutex{nullptr};
 
@@ -57,8 +57,8 @@ struct CarState {
         uint16_t engine_dC{0};
         uint16_t inverter_dC{0};
 
-        int engine{0};
-        int inverter{0};
+        uint8_t engine{0};
+        uint8_t inverter{0};
 
         SemaphoreHandle_t mutex{nullptr};
 
@@ -103,9 +103,9 @@ struct CarState {
     }
 
     // ========== Atomic getters/setters for speed, throttle, brake ==========
-    int getSpeed() const { return carSpeed.load(std::memory_order_relaxed); }
-    int getThrottle() const { return throttlePosition.load(std::memory_order_relaxed); }
-    int getBrake() const { return brakePosition.load(std::memory_order_relaxed); }
+    uint8_t getSpeed() const { return carSpeed.load(std::memory_order_relaxed); }
+    uint8_t getThrottle() const { return throttlePosition.load(std::memory_order_relaxed); }
+    uint8_t getBrake() const { return brakePosition.load(std::memory_order_relaxed); }
 
     uint16_t getSpeedRaw() const {
         return carSpeed_dkmh.load(std::memory_order_relaxed);
@@ -157,31 +157,31 @@ struct CarState {
     // ========== BatteryState - Setters/Getters individuels ==========
     void setBatterySOC(uint16_t soc_permil);
     uint16_t getBatterySOC_permil();
-    int getBatterySOC();
+    uint8_t getBatterySOC();
 
     void setBatteryTemperature(int16_t temperature_dC);
     int16_t getBatteryTemperature_dC();
-    int getBatteryTemperature();
+    int16_t getBatteryTemperature();
 
     void setBatteryEnergyAvailable(int64_t energyAvailable_mWh);
     int64_t getBatteryEnergyAvailable();
 
     // ========== BatteryState - Setter/Getter de module complet ==========
     void setBatteryState(uint16_t soc_permil, int16_t temperature_dC, int64_t energyAvailable_mWh);
-    bool getBatteryState(uint16_t &soc_permil, int16_t &temperature_dC, int64_t &energyAvailable_mWh, int &soc, int &temperature);
+    bool getBatteryState(uint16_t &soc_permil, int16_t &temperature_dC, int64_t &energyAvailable_mWh, uint8_t &soc, int16_t &temperature);
 
     // ========== TemperatureData - Setters/Getters individuels ==========
     void setEngineTemperature(uint16_t engine_dC);
     uint16_t getEngineTemperature_dC();
-    int getEngineTemperature();
+    uint8_t getEngineTemperature();
 
     void setInverterTemperature(uint16_t inverter_dC);
     uint16_t getInverterTemperature_dC();
-    int getInverterTemperature();
+    uint8_t getInverterTemperature();
 
     // ========== TemperatureData - Setter/Getter de module complet ==========
     void setTemperatures(uint16_t engine_dC, uint16_t inverter_dC);
-    bool getTemperatures(uint16_t &engine_dC, uint16_t &inverter_dC, int &engine, int &inverter);
+    bool getTemperatures(uint16_t &engine_dC, uint16_t &inverter_dC, uint8_t &engine, uint8_t &inverter);
 
     // ========== EnergyData - Setters/Getters individuels ==========
     void setTripDistance(int32_t tripDistance_m);

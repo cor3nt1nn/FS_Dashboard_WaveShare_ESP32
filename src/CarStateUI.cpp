@@ -27,7 +27,7 @@ void CarStateUI::updateSpeedUI() {
     return;
   }
 
-  int currentSpeed = carState.getSpeed();
+  uint8_t currentSpeed = carState.getSpeed();
 
   if (abs(currentSpeed - speedField.lastValue) < speedField.valueThreshold) {
     return;
@@ -43,7 +43,7 @@ void CarStateUI::updateThrottleUI() {
   if (now - throttleField.lastUpdateMs < throttleField.refreshIntervalMs) {
     return;
   }
-  int throttlePosition = carState.getThrottle();
+  uint8_t throttlePosition = carState.getThrottle();
 
   if (abs(throttlePosition - throttleField.lastValue) < throttleField.valueThreshold) {
     return;
@@ -61,7 +61,7 @@ void CarStateUI::updateBrakeUI() {
     return;
   }
 
-  int brakePosition = carState.getBrake();
+  uint8_t brakePosition = carState.getBrake();
 
   if (abs(brakePosition - brakeField.lastValue) < brakeField.valueThreshold) {
     return;
@@ -81,7 +81,7 @@ void CarStateUI::updateVoltageUI() {
 
   float voltage = carState.getBatteryVoltage();
 
-  int voltage_int = (int)voltage;
+  uint8_t voltage_int = (uint8_t)voltage;
   if (abs(voltage_int - voltageField.lastValue) < voltageField.valueThreshold) {
     return;
   }
@@ -101,7 +101,7 @@ void CarStateUI::updateAmperageUI() {
 
   float amperage = carState.getBatteryAmperage();
 
-  int amperage_int = (int)amperage;
+  int16_t amperage_int = (int16_t)amperage;
   if (abs(amperage_int - amperageField.lastValue) < amperageField.valueThreshold) {
     return;
   }
@@ -137,7 +137,7 @@ void CarStateUI::updateBatteryLevelUI() {
     return;
   }
 
-  int batteryLevel = carState.getBatterySOC();
+  uint8_t batteryLevel = carState.getBatterySOC();
 
   if (abs(batteryLevel - batteryLevelField.lastValue) < batteryLevelField.valueThreshold) {
     return;
@@ -157,7 +157,7 @@ void CarStateUI::updateBatteryTempUI() {
     return;
   }
 
-  int batteryTemperature = carState.getBatteryTemperature();
+  int16_t batteryTemperature = carState.getBatteryTemperature();
 
   if (abs(batteryTemperature - batteryTempField.lastValue) < batteryTempField.valueThreshold) {
     return;
@@ -177,7 +177,7 @@ void CarStateUI::updateEngineTempUI() {
     return;
   }
 
-  int engineTemp = carState.getEngineTemperature();
+  uint8_t engineTemp = carState.getEngineTemperature();
 
   if (abs(engineTemp - engineTempField.lastValue) < engineTempField.valueThreshold) {
     return;
@@ -196,7 +196,7 @@ void CarStateUI::updateInverterTempUI() {
     return;
   }
 
-  int inverterTemp = carState.getInverterTemperature();
+  uint8_t inverterTemp = carState.getInverterTemperature();
 
   if (abs(inverterTemp - inverterTempField.lastValue) < inverterTempField.valueThreshold) {
     return;
@@ -285,7 +285,7 @@ void CarStateUI::updateConsumptionUI() {
 }
 
 // update battery SOC color on the screen
-void CarStateUI::updateBatteryLevelColor(int level) {
+void CarStateUI::updateBatteryLevelColor(uint8_t level) {
   uint32_t color = (level <= 15) ? 0xFF0000 : (level >= 75) ? 0x00FF00 : 0xFFFFFF; // Red if <=15%, Green if >=75%, White otherwise
   if (color == lastBatteryLevelColor)
     return;
@@ -298,7 +298,7 @@ void CarStateUI::updateBatteryLevelColor(int level) {
 }
 
 // update battery temperature color on the screen
-void CarStateUI::updateBatteryTempColor(int temp) {
+void CarStateUI::updateBatteryTempColor(int16_t temp) {
   bool isOverheated = (temp > 70); // Overheated if temperature is above 70 degrees Celsius
   if (isOverheated == lastBatteryTempOverheated)
     return;
@@ -311,7 +311,7 @@ void CarStateUI::updateBatteryTempColor(int temp) {
 }
 
 // update engine temperature color on the screen
-void CarStateUI::updateEngineTempColor(int temp) {
+void CarStateUI::updateEngineTempColor(uint8_t temp) {
   uint32_t color = (temp < 90) ? 0x00FF00 : (temp < 110) ? 0xFFFF00 : 0xFF0000; // Green if <90, Yellow if <110, Red otherwise
   if (color == lastEngineTempColor)
     return;
@@ -320,7 +320,7 @@ void CarStateUI::updateEngineTempColor(int temp) {
 }
 
 // update inverter temperature color on the screen
-void CarStateUI::updateInverterTempColor(int temp) {
+void CarStateUI::updateInverterTempColor(uint8_t temp) {
   uint32_t color = (temp < 90) ? 0x00FF00 : (temp < 110) ? 0xFFFF00 : 0xFF0000; // Green if <90, Yellow if <110, Red otherwise
   if (color == lastInverterTempColor)
     return;

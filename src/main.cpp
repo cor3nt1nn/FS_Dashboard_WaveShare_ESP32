@@ -65,22 +65,22 @@ public:
     cfg.panel = &_panel_instance;
 
     // Data pins (16-bit RGB565)
-    cfg.pin_d0 = GPIO_NUM_14;
-    cfg.pin_d1 = GPIO_NUM_38;
-    cfg.pin_d2 = GPIO_NUM_18;
-    cfg.pin_d3 = GPIO_NUM_17;
-    cfg.pin_d4 = GPIO_NUM_10;
-    cfg.pin_d5 = GPIO_NUM_39;
-    cfg.pin_d6 = GPIO_NUM_0;
-    cfg.pin_d7 = GPIO_NUM_45;
-    cfg.pin_d8 = GPIO_NUM_48;
-    cfg.pin_d9 = GPIO_NUM_47;
-    cfg.pin_d10 = GPIO_NUM_21;
-    cfg.pin_d11 = GPIO_NUM_1;
-    cfg.pin_d12 = GPIO_NUM_2;
-    cfg.pin_d13 = GPIO_NUM_42;
-    cfg.pin_d14 = GPIO_NUM_41;
-    cfg.pin_d15 = GPIO_NUM_40;
+    cfg.pin_d0 = GPIO_NUM_14; //B3
+    cfg.pin_d1 = GPIO_NUM_38; //B4
+    cfg.pin_d2 = GPIO_NUM_18; //B5
+    cfg.pin_d3 = GPIO_NUM_17; //B6
+    cfg.pin_d4 = GPIO_NUM_10; //B7
+    cfg.pin_d5 = GPIO_NUM_39; //G2
+    cfg.pin_d6 = GPIO_NUM_0;  //G3
+    cfg.pin_d7 = GPIO_NUM_45; //G4
+    cfg.pin_d8 = GPIO_NUM_48; //G5
+    cfg.pin_d9 = GPIO_NUM_47; //G6
+    cfg.pin_d10 = GPIO_NUM_21; //G7
+    cfg.pin_d11 = GPIO_NUM_1; //R3
+    cfg.pin_d12 = GPIO_NUM_2; //R4
+    cfg.pin_d13 = GPIO_NUM_42; //R5
+    cfg.pin_d14 = GPIO_NUM_41; //R6
+    cfg.pin_d15 = GPIO_NUM_40; //R7
 
     // Control signals
     cfg.pin_henable = GPIO_NUM_5;
@@ -147,7 +147,7 @@ static int32_t filteredConsumption_cWhKm = 0; // Smoothed consumption value
  * 0x18010002 - Brake position
  * 0x18010003 - Vehicle speed
  * 0x18020001 - Battery voltage
- * 0x18020002 - Battery current
+ * 0x18020002 - Battery amperage
  * 0x18030001 - Battery SOC (State of Charge)
  * 0x18030002 - Battery temperature
  * 0x18030003 - Motor temperature
@@ -180,10 +180,10 @@ void handleCANFrame(const twai_message_t &msg, CarState &carState) {
             carState.setBatteryVoltage(value_u16);
             break;
 
-        case 0x18020002:  // Battery current
+        case 0x18020002:  // Battery amperage
             value_i16 = (int16_t)((msg.data[1] << 8) | msg.data[0]);
             carState.setBatteryAmperage(value_i16);
-            // Calculate power output (P = V * I)
+            // Calculated power output (P = V * I)
             {
                 uint16_t voltage_cV = carState.getBatteryVoltage_cV();
                 int32_t powerOutput_mW = ((int64_t)voltage_cV * value_i16) * 0.1;
@@ -194,7 +194,7 @@ void handleCANFrame(const twai_message_t &msg, CarState &carState) {
         case 0x18030001:  // Battery SOC
             value_u16 = (msg.data[1] << 8) | msg.data[0];
             carState.setBatterySOC(value_u16);
-            // Calculate available energy
+            // Calculated available energy
             {
                 int64_t energyAvailable_mWh = (carState.batteryCapacity_mWh * value_u16) * 0.001f;
                 carState.setBatteryEnergyAvailable(energyAvailable_mWh);
@@ -312,231 +312,6 @@ void updateEnergyAndDelta() {
     carState.setLastCalcMs(now);
 }
 
-// ##############################################################################################
-// ##############  TO DELETE WHEN THE FIRST TEST WILL HAVE RECORDED DATAS   #####################
-// ##############################################################################################
-
-/**
- * Fake CAN Task that reproduce realistic vehicle behavior for debugging.
- *
- * Simulates:
- * - Aerodynamic drag
- * - Rolling resistance
- * - Motor performance
- * - Regenerative braking
- * - Battery voltage drop under load
- *
- * Cycle: Accelerate to 150 km/h → Brake to 25 km/h → Repeat
- */
-void fakeCANTask(void *pvParameters) {
-    twai_message_t msg;
-    msg.extd = 1;
-    msg.data_length_code = 2;
-    CarState& carState = can.state();
-
-    // Vehicle physics parameters
-    const float mass = 350.0f;                      // Vehicle mass (kg)
-    const float Cx = 0.18f;                         // Drag coefficient
-    const float S = 0.9f;                           // Frontal area (m²)
-    const float rho = 1.225f;                       // Air density (kg/m³)
-    const float Crr = 0.008f;                       // Rolling resistance coefficient
-    const float g = 9.81f;                          // Gravity (m/s²)
-    const float motorEff = 0.92f;                   // Motor efficiency (92%)
-    const float batteryVoltageNominal = 340.0f;     // Nominal voltage (V)
-    const float batteryVoltageMax = 349.0f;         // Max voltage (V)
-    const float batteryInternalResistance = 0.08f;  // Internal resistance (Ω)
-    const float maxMotorPower = 80000.0f;           // Max power (W)
-
-    // State variables
-    float speed_kmh = 0;
-    float throttle = 0;
-    float brake = 0;
-    float batteryVoltage = batteryVoltageMax;
-    float temp_motor = 55.0f;
-    float temp_inverter = 74.0f;
-    float temp_battery = 82.0f;
-
-    // Driving cycle state machine
-    enum Phase { ACCEL, HOLD_ACCEL, DECEL_FULL, DECEL_RELEASE };
-    Phase phase = ACCEL;
-    Phase previous_phase = ACCEL;
-    uint32_t phase_start_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
-
-    // Simulation constants
-    const float dt = 0.01f;                         // Time step (20ms)
-    const float throttle_ramp = 1000.0f / 2.0f * dt; // Throttle ramp rate
-    const float brake_ramp = 1000.0f / 3.0f * dt;    // Brake ramp rate
-    const float temp_rate = 0.005f;                  // Temperature rise rate
-
-    // Battery simulation
-    int64_t batteryCapacity_mWh = carState.batteryCapacity_mWh;
-    int64_t batteryEnergy_mWh = batteryCapacity_mWh;
-    uint16_t soc_permil = 1000;
-
-    for (;;) {
-        uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
-        uint32_t elapsed = now - phase_start_time;
-
-        // State machine for driving cycle
-        switch (phase) {
-            case ACCEL:
-                throttle += throttle_ramp;
-                if (throttle >= 1000) {
-                    throttle = 1000;
-                    phase = HOLD_ACCEL;
-                }
-                brake = 0;
-                break;
-
-            case HOLD_ACCEL:
-                throttle = 1000;
-                brake = 0;
-                if (speed_kmh >= 150) {
-                    phase = DECEL_FULL;
-                    phase_start_time = now;
-                    throttle = 0;
-                    brake = 1000;
-                }
-                break;
-
-            case DECEL_FULL:
-                throttle = 0;
-                brake = 1000;
-                if (speed_kmh <= 25.0f) {
-                    brake = 0;
-                    phase = ACCEL;
-                    phase_start_time = now;
-                }
-                break;
-
-            case DECEL_RELEASE:
-                throttle = 0;
-                brake -= brake_ramp;
-                if (brake <= 0) {
-                    brake = 0;
-                    phase = ACCEL;
-                    phase_start_time = now;
-                }
-                break;
-        }
-
-        // Temperature simulation (slowly rising)
-        temp_motor = fmin(temp_motor + temp_rate, 88.0f);
-        temp_inverter = fmin(temp_inverter + temp_rate, 110.0f);
-        temp_battery = fmin(temp_battery + temp_rate, 70.0f);
-
-        // Physics simulation
-        float speed_ms = speed_kmh / 3.6f;
-
-        // Force calculations
-        float F_aero = 0.5f * rho * Cx * S * speed_ms * speed_ms;  // Aerodynamic drag
-        float F_roll = mass * g * Crr;                             // Rolling resistance
-        float F_resist = F_aero + F_roll;                          // Total resistance
-
-        float P_available = maxMotorPower * (throttle / 1000.0f);
-        const float F_motor_max = 6000.0f;
-        float F_motor = P_available / fmax(speed_ms, 1.0f);
-        F_motor = fmin(F_motor, F_motor_max);
-        float F_brake = (brake / 1000.0f) * 6000.0f;
-
-        // Acceleration calculation (F = ma)
-        float accel_ms2 = (F_motor - F_resist - F_brake) / mass;
-        speed_ms += accel_ms2 * dt;
-        speed_ms = fmax(speed_ms, 0.0f);
-        speed_kmh = speed_ms * 3.6f;
-
-        // Power and energy calculations
-        float P_elec = 0.0f;
-        float P_regen = 0.0f;
-
-        if (brake > 0 && speed_ms > 1.0f) {
-            // Regenerative braking
-            P_regen = F_brake * speed_ms * 0.7f;  // 70% efficiency
-            P_regen = fmin(P_regen, maxMotorPower * 0.5f);
-        } else if (throttle > 0) {
-            // Acceleration
-            float P_mech = F_resist * speed_ms + fmax(accel_ms2 * mass * speed_ms, 0.0f);
-            P_elec = P_mech / motorEff;
-            P_elec = fmin(P_elec, maxMotorPower);
-        } else {
-            // Coasting
-            float P_mech = F_resist * speed_ms;
-            P_elec = P_mech / motorEff;
-        }
-
-        // Battery model with voltage drop
-        float P_net = P_elec - P_regen;
-        float I = P_net / batteryVoltage;
-        float voltage_drop = I * batteryInternalResistance;
-        batteryVoltage = batteryVoltageNominal - voltage_drop;
-        batteryVoltage = fmin(fmax(batteryVoltage, 300.0f), 349.9f);
-        int16_t I_cA = (int16_t)(I * 100.0f);
-
-        // Energy tracking
-        float energyUsed_mWh = (P_net * dt) / 3.6f;
-        batteryEnergy_mWh -= (int64_t)energyUsed_mWh;
-        batteryEnergy_mWh = fmax(batteryEnergy_mWh, 0LL);
-        batteryEnergy_mWh = fmin(batteryEnergy_mWh, batteryCapacity_mWh);
-
-        soc_permil = (uint16_t)((batteryEnergy_mWh * 1000LL) / batteryCapacity_mWh);
-        soc_permil = fmin(soc_permil, 1000);
-
-        // Send simulated CAN messages
-        msg.identifier = 0x18010001;  // Throttle
-        msg.data[0] = (uint8_t)((int) throttle & 0xFF);
-        msg.data[1] = (uint8_t)(((int) throttle >> 8) & 0xFF);
-        handleCANFrame(msg, carState);
-
-        msg.identifier = 0x18010002;  // Brake
-        msg.data[0] = (uint8_t)((int)brake & 0xFF);
-        msg.data[1] = (uint8_t)(((int)brake >> 8) & 0xFF);
-        handleCANFrame(msg, carState);
-
-        msg.identifier = 0x18010003;  // Speed
-        uint16_t speed_dkmh = (uint16_t)(speed_kmh * 10);
-        msg.data[0] = speed_dkmh & 0xFF;
-        msg.data[1] = (speed_dkmh >> 8) & 0xFF;
-        handleCANFrame(msg, carState);
-
-        msg.identifier = 0x18020001;  // Voltage
-        uint16_t v_cV = (uint16_t)(batteryVoltage * 100);
-        msg.data[0] = v_cV & 0xFF;
-        msg.data[1] = (v_cV >> 8) & 0xFF;
-        handleCANFrame(msg, carState);
-
-        msg.identifier = 0x18020002;  // Current
-        msg.data[0] = I_cA & 0xFF;
-        msg.data[1] = (I_cA >> 8) & 0xFF;
-        handleCANFrame(msg, carState);
-
-        msg.identifier = 0x18030001;  // SOC
-        msg.data[0] = soc_permil & 0xFF;
-        msg.data[1] = (soc_permil >> 8) & 0xFF;
-        handleCANFrame(msg, carState);
-
-        msg.identifier = 0x18030002;  // Battery temp
-        int16_t temp_battery_dC = (int16_t)(temp_battery * 10);
-        msg.data[0] = temp_battery_dC & 0xFF;
-        msg.data[1] = (temp_battery_dC >> 8) & 0xFF;
-        handleCANFrame(msg, carState);
-
-        msg.identifier = 0x18030003;  // Motor temp
-        uint16_t temp_motor_dC = (uint16_t)(temp_motor * 10);
-        msg.data[0] = temp_motor_dC & 0xFF;
-        msg.data[1] = (temp_motor_dC >> 8) & 0xFF;
-        handleCANFrame(msg, carState);
-
-        msg.identifier = 0x18030004;  // Inverter temp
-        uint16_t temp_inverter_dC = (uint16_t)(temp_inverter * 10);
-        msg.data[0] = temp_inverter_dC & 0xFF;
-        msg.data[1] = (temp_inverter_dC >> 8) & 0xFF;
-        handleCANFrame(msg, carState);
-
-        vTaskDelay(pdMS_TO_TICKS(10));  // 50 Hz update rate
-    }
-}
-
-
 // ================================================================================
 // RTOS TASKS (Parallel execution threads)
 // ================================================================================
@@ -638,19 +413,18 @@ void setup()
         canLogger.startLogging();
     }
 
-    //   if (!can.begin()) {
-    //     Serial.println("CAN init failed");
-    //     while (1) {
-    //       delay(1000);
-    //     }
-    //   }
+    if (!can.begin()) {
+        Serial.println("CAN init failed");
+        while (1) {
+            delay(1000);
+        }
+    }
 
     // CAN message Handler. Communicates with Vehicule State
     can.onFrame(handleCANFrame);
 
     // Assigns Parallel Tasks
-    // xTaskCreatePinnedToCore(canTask, "CAN Task", 4096, NULL, 2, NULL, 1); // Handle reception of CAN Frames and update the state of the car
-    xTaskCreatePinnedToCore(fakeCANTask, "CAN Task", 4096, NULL, 2, NULL, 1); // Fake CAN Frames to simulate reception from the car (DEBUG USE ONLY)
+    xTaskCreatePinnedToCore(canTask, "CAN Task", 4096, NULL, 2, NULL, 1); // Handle reception of CAN Frames and update the state of the car
     xTaskCreatePinnedToCore(calculationTask, "Calc Task", 4096, NULL, 1, NULL, 1); // All the calculations to retrieve datas that are not provided by CAN Bus
     xTaskCreatePinnedToCore(uiTask, "UI Task", 8192, NULL, 1, NULL, 0); // Update the display with new Vehicule State
     xTaskCreatePinnedToCore(loggerTask, "Logger Task", 4096, NULL, 0, NULL, 0); // Store all the CAN Frames received in CSV
