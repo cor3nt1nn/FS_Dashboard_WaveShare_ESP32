@@ -20,21 +20,21 @@
 
   #ifdef LOG_LEVEL_INFO
     #define LOG_I(tag, fmt, ...) \
-      Serial.printf("[%8lu] %s [INFO ] " fmt "\n", millis(), tag, ##__VA_ARGS__)
+      Serial0.printf("[%8lu] %s [INFO ] " fmt "\n", millis(), tag, ##__VA_ARGS__)
   #else
     #define LOG_I(tag, fmt, ...)
   #endif
 
   #ifdef LOG_LEVEL_WARN
     #define LOG_W(tag, fmt, ...) \
-      Serial.printf("[%8lu] %s [WARN ] " fmt "\n", millis(), tag, ##__VA_ARGS__)
+      Serial0.printf("[%8lu] %s [WARN ] " fmt "\n", millis(), tag, ##__VA_ARGS__)
   #else
     #define LOG_W(tag, fmt, ...)
   #endif
 
   #ifdef LOG_LEVEL_ERROR
     #define LOG_E(tag, fmt, ...) \
-      Serial.printf("[%8lu] %s [ERROR] " fmt "\n", millis(), tag, ##__VA_ARGS__)
+      Serial0.printf("[%8lu] %s [ERROR] " fmt "\n", millis(), tag, ##__VA_ARGS__)
   #else
     #define LOG_E(tag, fmt, ...)
   #endif

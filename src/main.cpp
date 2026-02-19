@@ -35,6 +35,26 @@
 #include <Wire.h>                // CH422G IO expander via direct I2C (EXIO5=USB_SEL → CAN/USB switch)
 
 // ================================================================================
+// SERIAL CAN DATA INPUT
+// Receive CAN frames over USB (Type_C1 native USB CDC = Serial) in the format:
+//   ID:DATA\n
+//   ID   = CAN identifier in hex, up to 8 digits  (e.g. 18010001)
+//   DATA = payload bytes in hex, 2 chars per byte, little-endian (e.g. E803 → byte[0]=0xE8, byte[1]=0x03)
+//
+// Examples:
+//   18010001:E803        → throttle  = 0x03E8 = 1000 → 100.0%
+//   18010003:6401        → speed     = 0x0164 = 356  → 35.6 km/h
+//   18020001:A02E        → voltage   = 0x2EA0 = 11936 → 119.36 V
+//   18020002:9001        → current   = 0x0190 = 400  → 4.00 A
+//   18030001:E803        → SOC       = 0x03E8 = 1000 → 100.0%
+//   18030002:FA00        → batt temp = 0x00FA = 250  → 25.0°C
+//   18030003:C201        → mot temp  = 0x01C2 = 450  → 45.0°C
+//   18030004:7A01        → inv temp  = 0x017A = 378  → 37.8°C
+//
+// Debug logs go to Serial0 (Type_C2 UART/CH340, COM port).
+// ================================================================================
+
+// ================================================================================
 // CONFIGURATION CONSTANTS
 // ================================================================================
 
@@ -149,7 +169,10 @@ CANLogger canLogger;
 // EXIO2 = DISP     → HIGH = backlight ON
 // EXIO3 = LCD_RST  → HIGH = LCD out of reset
 // EXIO4 = SDCS     → HIGH = SD card deselected (active-low CS)
-// EXIO5 = USB_SEL  → HIGH = CAN mode  /  LOW = USB mode  ← THIS IS WHY CAN WAS SILENT
+// EXIO5 = USB_SEL  → HIGH = CAN mode  /  LOW = USB mode (GPIO19/20 native USB OTG)
+//
+// We use LOW here: data is received via native USB CDC (Type_C1), not CAN bus.
+// Debug logs go to UART0/Serial0 (Type_C2, CH340 chip).
 //
 // CH422G register map (7-bit addresses, source: esp_io_expander_ch422g.c):
 //   CH422G_REG_WR_SET = 0x48>>1 = 0x24  → config byte (bit 0 = IO_OE: enable IO output)
@@ -163,19 +186,20 @@ static void initCH422G() {
     Wire.write(0x01);             // IO_OE = 1
     uint8_t err1 = Wire.endTransmission();
 
-    // Step 2: drive all IO0-IO7 HIGH
+    // Step 2: set IO pins
     //   EXIO2 (DISP)    = 1 → backlight ON
     //   EXIO3 (LCD_RST) = 1 → LCD out of reset
     //   EXIO4 (SDCS)    = 1 → SD card deselected (active-low)
-    //   EXIO5 (USB_SEL) = 1 → CAN mode (NOT USB mode) ← the key fix
+    //   EXIO5 (USB_SEL) = 0 → USB native mode (GPIO19/20 → Type_C1 USB OTG)
+    //                         0xFF & ~(1<<5) = 0xDF
     Wire.beginTransmission(0x38); // CH422G_REG_WR_IO
-    Wire.write(0xFF);             // all IO0-IO7 HIGH
+    Wire.write(0xDF);             // all HIGH except EXIO5 (bit 5) = LOW → USB mode
     uint8_t err2 = Wire.endTransmission();
 
     if (err1 == 0 && err2 == 0) {
-        LOG_I(TAG_MAIN, "CH422G OK - EXIO5 HIGH → CAN transceiver enabled");
+        LOG_I(TAG_MAIN, "CH422G OK - EXIO5 LOW → native USB mode (Type_C1), CAN transceiver disabled");
     } else {
-        LOG_E(TAG_MAIN, "CH422G FAILED (err1=%d err2=%d) - CAN may stay in USB mode!", err1, err2);
+        LOG_E(TAG_MAIN, "CH422G FAILED (err1=%d err2=%d)", err1, err2);
     }
 }
 static int32_t filteredConsumption_cWhKm = 0; // Smoothed consumption value
@@ -392,10 +416,62 @@ void updateEnergyAndDelta() {
  * CAN Task that handles CAN bus reception and storage in vehicle state
  * Priority: 2 | Core: 1 | Stack: 4KB
  */
+// ---------------------------------------------------------------------------
+// Serial CAN input – reads "XXXXXXXX:YYYY\n" from native USB CDC (Serial)
+// and builds a fake twai_message_t passed directly to handleCANFrame.
+// ---------------------------------------------------------------------------
+static void processSerialCANInput() {
+  static char lineBuf[32];
+  static uint8_t lineLen = 0;
+
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c == '\n' || c == '\r') {
+      if (lineLen == 0) continue;
+      lineBuf[lineLen] = '\0';
+      lineLen = 0;
+
+      // Split on ':'
+      char *colon = strchr(lineBuf, ':');
+      if (!colon) {
+        LOG_W(TAG_CAN, "[SerialCAN] Bad format (no ':'): %s", lineBuf);
+        continue;
+      }
+      *colon = '\0';
+      const char *idStr   = lineBuf;
+      const char *dataStr = colon + 1;
+
+      uint32_t id = (uint32_t)strtoul(idStr, nullptr, 16);
+      size_t dataHexLen = strlen(dataStr);
+      if (dataHexLen % 2 != 0 || dataHexLen > 16) {
+        LOG_W(TAG_CAN, "[SerialCAN] Bad data field: %s", dataStr);
+        continue;
+      }
+
+      twai_message_t fakeMsg = {};
+      fakeMsg.identifier       = id;
+      fakeMsg.extd             = (id > 0x7FF) ? 1 : 0;
+      fakeMsg.data_length_code = (uint8_t)(dataHexLen / 2);
+      for (uint8_t i = 0; i < fakeMsg.data_length_code; i++) {
+        char byteStr[3] = { dataStr[i * 2], dataStr[i * 2 + 1], '\0' };
+        fakeMsg.data[i] = (uint8_t)strtoul(byteStr, nullptr, 16);
+      }
+
+      LOG_I(TAG_CAN, "[SerialCAN] Injecting ID=0x%08X  DLC=%u", fakeMsg.identifier, fakeMsg.data_length_code);
+      handleCANFrame(fakeMsg, can.state());
+    } else {
+      if (lineLen < sizeof(lineBuf) - 1) {
+        lineBuf[lineLen++] = c;
+      }
+    }
+  }
+}
+
 void canTask(void *pvParameters) {
   LOG_I(TAG_CAN, "CAN task started on core %d", xPortGetCoreID());
   for (;;) {
     can.loop();
+    processSerialCANInput();
     vTaskDelay(pdMS_TO_TICKS(1));
   }
 }
@@ -458,7 +534,8 @@ void uiTask(void *pvParameters) {
  */
 void setup()
 {
-    Serial.begin(9600);
+    Serial0.begin(9600);  // UART0 → Type_C2 (CH340) → debug logs via Serial0
+    Serial.begin(0);      // USB CDC → Type_C1 (native USB) → CAN data input
     delay(200); // Give serial time to come up before first logs
 
     LOG_I(TAG_MAIN, "========================================");
