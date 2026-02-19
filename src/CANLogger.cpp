@@ -1,4 +1,5 @@
 #include "CANLogger.hpp"
+#include "Debug.hpp"
 
 CANLogger::CANLogger()
     : logging(false),           // Start with logging disabled
@@ -27,15 +28,19 @@ CANLogger::~CANLogger() {
 
 // Initialize SD card with specific pins
 bool CANLogger::begin() {
+    LOG_I(TAG_LOGGER, "Mounting SD card (CLK=12, CMD=11, DATA0=13)...");
     SD_MMC.setPins(12, 11, 13); // CLK=12, CMD=11, DATA0=13
     delay(500);
 
     if(!SD_MMC.begin("/sdcard", true)){ // Mount point is "/sdcard"
+        LOG_E(TAG_LOGGER, "SD_MMC.begin() FAILED - SD card not mounted");
         SD_MMC.end();  // Clean up on failure
         sdInitialized = false;
         return false;  // Initialization failed
     }
 
+    uint64_t cardSize = SD_MMC.cardSize() / (1024 * 1024);
+    LOG_I(TAG_LOGGER, "SD card mounted OK - size: %llu MB", cardSize);
     sdInitialized = true;
     return true;  // Initialization successful
 }
@@ -46,6 +51,11 @@ void CANLogger::loop() {
         vTaskDelay(pdMS_TO_TICKS(100));  // Sleep for 100ms
         return;
     }
+    // Log queue stats periodically
+    LOG_EVERY_MS(10000, LOG_I(TAG_LOGGER,
+        "Stats - logged=%lu  dropped=%lu  dropRate=%.1f%%  queueWaiting=%u",
+        framesLogged.load(), framesDropped.load(), getDropRate(),
+        (unsigned)uxQueueMessagesWaiting(logQueue)));
     // Process queued CAN frames
     processQueue();
 }
@@ -72,6 +82,8 @@ bool CANLogger::logFrame(const twai_message_t &msg) {
     // Try to add to queue without blocking (timeout = 0)
     if (xQueueSend(logQueue, &entry, 0) != pdTRUE) {
         framesDropped++;  // Queue is full, increment dropped counter
+        LOG_W(TAG_LOGGER, "Queue FULL - frame dropped! total dropped=%lu  queueSize=%d",
+              framesDropped.load(), LOG_QUEUE_SIZE);
         return false;     // Failed to queue
     }
 
@@ -81,7 +93,12 @@ bool CANLogger::logFrame(const twai_message_t &msg) {
 // Start the logging process
 void CANLogger::startLogging() {
     // Don't start if SD card not initialized or already logging
-    if (!sdInitialized || logging) {
+    if (!sdInitialized) {
+        LOG_E(TAG_LOGGER, "startLogging() called but SD card not initialized");
+        return;
+    }
+    if (logging) {
+        LOG_W(TAG_LOGGER, "startLogging() called but already logging");
         return;
     }
 
@@ -90,14 +107,18 @@ void CANLogger::startLogging() {
 
     // Enable logging
     logging = true;
+    LOG_I(TAG_LOGGER, "Logging started - file: %s", currentFilename);
 }
 
 // Stop logging and flush all remaining data
 void CANLogger::stopLogging() {
     // Already stopped
     if (!logging) {
+        LOG_W(TAG_LOGGER, "stopLogging() called but not currently logging");
         return;
     }
+
+    LOG_I(TAG_LOGGER, "Stopping logging - flushing remaining frames...");
 
     // Disable logging flag
     logging = false;
@@ -109,12 +130,19 @@ void CANLogger::stopLogging() {
         timeout++;
     }
 
+    if (timeout >= 100) {
+        LOG_W(TAG_LOGGER, "Queue drain timed out - %u frames may be lost",
+              (unsigned)uxQueueMessagesWaiting(logQueue));
+    }
+
     // Acquire mutex to safely access SD card
     if (xSemaphoreTake(sdMutex, portMAX_DELAY)) {
         // Close log file if open
         if (logFile) {
             logFile.flush();  // Write any buffered data
             logFile.close();  // Close the file
+            LOG_I(TAG_LOGGER, "Log file closed - total logged=%lu  dropped=%lu",
+                  framesLogged.load(), framesDropped.load());
         }
         xSemaphoreGive(sdMutex);  // Release mutex
     }
@@ -124,11 +152,13 @@ void CANLogger::stopLogging() {
 void CANLogger::createNewLogFile() {
     // Try to acquire mutex (wait forever if necessary)
     if (!xSemaphoreTake(sdMutex, portMAX_DELAY)) {
+        LOG_E(TAG_LOGGER, "createNewLogFile() - failed to acquire mutex");
         return;
     }
 
     // Close previous log file if open
     if (logFile) {
+        LOG_I(TAG_LOGGER, "Closing previous log file: %s", currentFilename);
         logFile.flush();
         logFile.close();
     }
@@ -140,12 +170,17 @@ void CANLogger::createNewLogFile() {
     snprintf(currentFilename, sizeof(currentFilename),
              "/canlog_%lu.csv", fileStartTime);
 
+    LOG_I(TAG_LOGGER, "Creating new log file: %s", currentFilename);
+
     // Open file for writing (creates if doesn't exist)
     logFile = SD_MMC.open(currentFilename, FILE_WRITE);
 
     // Write CSV header if file opened successfully
     if (logFile) {
         writeHeader();
+        LOG_I(TAG_LOGGER, "Log file created OK: %s", currentFilename);
+    } else {
+        LOG_E(TAG_LOGGER, "Failed to open log file: %s", currentFilename);
     }
 
     xSemaphoreGive(sdMutex);  // Release mutex
@@ -183,14 +218,20 @@ void CANLogger::writeEntry(const CANLogEntry &entry) {
 // Flush buffered data to SD card and rotate file if needed
 void CANLogger::flushAndRotate() {
     if (!logFile) {
+        LOG_W(TAG_LOGGER, "flushAndRotate() called but no file is open");
         return;
     }
 
     // Force write buffered data to SD card
     logFile.flush();
+    LOG_EVERY_MS(30000, LOG_I(TAG_LOGGER, "Flushed to SD - logged=%lu  dropped=%lu  file=%s",
+        framesLogged.load(), framesDropped.load(), currentFilename));
 
-    // Check if file rotation is needed (file age > 7 minutes)
-    if (millis() - fileStartTime > FILE_ROTATION_MS) {
+    // Check if file rotation is needed (file age > FILE_ROTATION_MS)
+    uint32_t fileAge = millis() - fileStartTime;
+    if (fileAge > FILE_ROTATION_MS) {
+        LOG_I(TAG_LOGGER, "File rotation triggered (age=%lu ms > %d ms) - creating new file",
+              fileAge, FILE_ROTATION_MS);
         createNewLogFile();  // Start a new file
     }
 }
@@ -211,9 +252,15 @@ void CANLogger::processQueue() {
             processed++;
         } else {
             // Couldn't get mutex, put entry back at front of queue
+            LOG_W(TAG_LOGGER, "processQueue() - mutex timeout, requeueing entry 0x%08X", entry.identifier);
             xQueueSendToFront(logQueue, &entry, 0);
             break;  // Stop processing this batch
         }
+    }
+
+    if (processed > 0) {
+        LOG_EVERY_MS(5000, LOG_I(TAG_LOGGER, "Batch processed %d frames  queueRemaining=%u",
+            processed, (unsigned)uxQueueMessagesWaiting(logQueue)));
     }
 
     // Check if it's time to flush (every FLUSH_INTERVAL_MS = 2 seconds)
@@ -222,6 +269,8 @@ void CANLogger::processQueue() {
         if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(10))) {
             flushAndRotate();  // Flush data and rotate file if needed
             xSemaphoreGive(sdMutex);
+        } else {
+            LOG_W(TAG_LOGGER, "processQueue() - mutex timeout during flush");
         }
         lastFlushMs = millis();  // Update last flush time
     }

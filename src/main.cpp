@@ -31,6 +31,7 @@
 #include "CarState.hpp"              // Vehicle state data structure
 #include "CarStateUI.hpp"            // UI update functions
 #include "CANLogger.hpp"         // CAN logging (SD Card via SD_MMC)
+#include "Debug.hpp"             // Debug logging macros
 
 // ================================================================================
 // CONFIGURATION CONSTANTS
@@ -163,21 +164,25 @@ void handleCANFrame(const twai_message_t &msg, CarState &carState) {
         case 0x18010001:  // Throttle
             value_u16 = (msg.data[1] << 8) | msg.data[0];
             carState.setThrottle(value_u16);
+            LOG_EVERY_MS(500, LOG_I(TAG_CAN, "Throttle raw=%u  display=%u%%", value_u16, value_u16 / 10));
             break;
 
         case 0x18010002:  // Brake
             value_u16 = (msg.data[1] << 8) | msg.data[0];
             carState.setBrake(value_u16);
+            LOG_EVERY_MS(500, LOG_I(TAG_CAN, "Brake    raw=%u  display=%u%%", value_u16, value_u16 / 10));
             break;
 
         case 0x18010003:  // Speed
             value_u16 = (msg.data[1] << 8) | msg.data[0];
             carState.setSpeed(value_u16);
+            LOG_EVERY_MS(500, LOG_I(TAG_CAN, "Speed    raw=%u dkm/h  display=%u km/h", value_u16, value_u16 / 10));
             break;
 
         case 0x18020001:  // Battery voltage
             value_u16 = (msg.data[1] << 8) | msg.data[0];
             carState.setBatteryVoltage(value_u16);
+            LOG_EVERY_MS(1000, LOG_I(TAG_CAN, "Voltage  raw=%u cV  display=%.2f V", value_u16, value_u16 / 100.0f));
             break;
 
         case 0x18020002:  // Battery amperage
@@ -188,6 +193,8 @@ void handleCANFrame(const twai_message_t &msg, CarState &carState) {
                 uint16_t voltage_cV = carState.getBatteryVoltage_cV();
                 int32_t powerOutput_mW = ((int64_t)voltage_cV * value_i16) * 0.1;
                 carState.setBatteryPowerOutput(powerOutput_mW);
+                LOG_EVERY_MS(1000, LOG_I(TAG_CAN, "Amperage raw=%d cA  display=%.2f A  power=%ld mW",
+                    value_i16, value_i16 / 100.0f, powerOutput_mW));
             }
             break;
 
@@ -198,24 +205,31 @@ void handleCANFrame(const twai_message_t &msg, CarState &carState) {
             {
                 int64_t energyAvailable_mWh = (carState.batteryCapacity_mWh * value_u16) * 0.001f;
                 carState.setBatteryEnergyAvailable(energyAvailable_mWh);
+                LOG_EVERY_MS(2000, LOG_I(TAG_CAN, "SOC      raw=%u permil  display=%u%%  energy=%lld mWh",
+                    value_u16, value_u16 / 10, energyAvailable_mWh));
             }
             break;
 
         case 0x18030002:  // Battery temperature
             value_i16 = (int16_t)((msg.data[1] << 8) | msg.data[0]);
             carState.setBatteryTemperature(value_i16);
+            LOG_EVERY_MS(2000, LOG_I(TAG_CAN, "BattTemp raw=%d dC  display=%d degC", value_i16, value_i16 / 10));
             break;
 
         case 0x18030003:  // Motor temperature
             value_u16 = (msg.data[1] << 8) | msg.data[0];
             carState.setEngineTemperature(value_u16);
+            LOG_EVERY_MS(2000, LOG_I(TAG_CAN, "EngTemp  raw=%u dC  display=%u degC", value_u16, value_u16 / 10));
             break;
 
         case 0x18030004:  // Inverter temperature
             value_u16 = (msg.data[1] << 8) | msg.data[0];
             carState.setInverterTemperature(value_u16);
+            LOG_EVERY_MS(2000, LOG_I(TAG_CAN, "InvTemp  raw=%u dC  display=%u degC", value_u16, value_u16 / 10));
             break;
+
         default:
+            LOG_W(TAG_CAN, "Unknown CAN ID: 0x%08X  DLC=%u", msg.identifier, msg.data_length_code);
             break;
     }
     carState.updateTimestamp();
@@ -238,6 +252,7 @@ void updateEnergyAndDelta() {
 
     // First run initialization
     if (lastCalc == 0) {
+        LOG_I(TAG_CALC, "First run - initializing lastCalcMs to %lu", now);
         carState.setLastCalcMs(now);
         return;
     }
@@ -252,6 +267,8 @@ void updateEnergyAndDelta() {
     int32_t distance_m = 0;
     if (speed_dkmh > SPEED_THRESHOLD) {
         distance_m = ((int64_t)speed_dkmh * deltaTime_ms) / 36000;
+    } else {
+        LOG_EVERY_MS(5000, LOG_I(TAG_CALC, "Car stopped (speed_dkmh=%u <= threshold=%d), no distance added", speed_dkmh, SPEED_THRESHOLD));
     }
 
     // Calculate energy increment (positive = consumed, negative = regenerated)
@@ -296,6 +313,7 @@ void updateEnergyAndDelta() {
     if (filteredConsumption_cWhKm > MIN_CONSUMPTION) {
         rangeRemaining_m = (int32_t)((energyAvailable_mWh * 100) / filteredConsumption_cWhKm);
     } else {
+        LOG_W(TAG_CALC, "filteredConsumption_cWhKm=%ld <= MIN_CONSUMPTION=%d, range set to max", filteredConsumption_cWhKm, MIN_CONSUMPTION);
         rangeRemaining_m = 999999;
     }
     carState.setRangeRemaining(rangeRemaining_m);
@@ -305,8 +323,22 @@ void updateEnergyAndDelta() {
     int32_t delta_m = rangeRemaining_m - distanceRemaining_m;
 
     // Clamp delta to prevent overflow
-    if (delta_m > DELTA_CLAMP_M) delta_m = DELTA_CLAMP_M;
-    if (delta_m < -DELTA_CLAMP_M) delta_m = -DELTA_CLAMP_M;
+    if (delta_m > DELTA_CLAMP_M) {
+        LOG_W(TAG_CALC, "delta_m clamped to +MAX (was %ld)", delta_m);
+        delta_m = DELTA_CLAMP_M;
+    }
+    if (delta_m < -DELTA_CLAMP_M) {
+        LOG_W(TAG_CALC, "delta_m clamped to -MAX (was %ld)", delta_m);
+        delta_m = -DELTA_CLAMP_M;
+    }
+
+    LOG_EVERY_MS(5000, LOG_I(TAG_CALC,
+        "dt=%lums  dist=%ldm  trip=%ldm  consumed=%lldmWh  regen=%lldmWh  "
+        "consump=%ldcWh/km  filtered=%ldcWh/km  range=%ldm  distLeft=%ldm  delta=%ldm",
+        (unsigned long)deltaTime_ms, distance_m, tripDistance_m,
+        energyConsumed_mWh, energyRegenerated_mWh,
+        currentConsumption_cWhKm, filteredConsumption_cWhKm,
+        rangeRemaining_m, distanceRemaining_m, delta_m));
 
     carState.setEnergyDelta(delta_m * 100);
     carState.setLastCalcMs(now);
@@ -321,6 +353,7 @@ void updateEnergyAndDelta() {
  * Priority: 2 | Core: 1 | Stack: 4KB
  */
 void canTask(void *pvParameters) {
+  LOG_I(TAG_CAN, "CAN task started on core %d", xPortGetCoreID());
   for (;;) {
     can.loop();
     vTaskDelay(pdMS_TO_TICKS(1));
@@ -332,6 +365,7 @@ void canTask(void *pvParameters) {
  * Priority: 1 | Core: 1 | Stack: 4KB
  */
 void calculationTask(void *pvParameters) {
+  LOG_I(TAG_CALC, "Calculation task started on core %d", xPortGetCoreID());
   TickType_t lastWakeTime = xTaskGetTickCount();
   const TickType_t frequency = pdMS_TO_TICKS(100);
 
@@ -346,6 +380,7 @@ void calculationTask(void *pvParameters) {
  * Priority: 0 | Core: 0 | Stack: 4KB
  */
 void loggerTask(void *pvParameters) {
+  LOG_I(TAG_LOGGER, "Logger task started on core %d", xPortGetCoreID());
   for (;;) {
     canLogger.loop();
     vTaskDelay(pdMS_TO_TICKS(1));
@@ -357,6 +392,7 @@ void loggerTask(void *pvParameters) {
  * Priority: 1 | Core: 0 | Stack: 8KB
  */
 void uiTask(void *pvParameters) {
+  LOG_I(TAG_UI, "UI task started on core %d", xPortGetCoreID());
   for (;;) {
     car_ui.updateSpeedUI();
     car_ui.updateThrottleUI();
@@ -371,6 +407,7 @@ void uiTask(void *pvParameters) {
     car_ui.updateConsumptionUI();
     car_ui.updateDistanceUI();
     lv_timer_handler();
+    LOG_EVERY_MS(10000, LOG_I(TAG_UI, "Heap free: %u bytes", esp_get_free_heap_size()));
     vTaskDelay(pdMS_TO_TICKS(100));
   }
 }
@@ -382,12 +419,21 @@ void uiTask(void *pvParameters) {
 void setup()
 {
     Serial.begin(9600);
+    delay(200); // Give serial time to come up before first logs
+
+    LOG_I(TAG_MAIN, "========================================");
+    LOG_I(TAG_MAIN, " Sigma Racing Dashboard - Booting...");
+    LOG_I(TAG_MAIN, "========================================");
+    LOG_I(TAG_MAIN, "Free heap at start: %u bytes", esp_get_free_heap_size());
 
     // Initialize display hardware
+    LOG_I(TAG_MAIN, "Initializing display...");
     lcd.begin();
     lcd.fillScreen(TFT_BLACK);
+    LOG_I(TAG_MAIN, "Display initialized OK");
 
     // Initialize LVGL
+    LOG_I(TAG_MAIN, "Initializing LVGL...");
     lv_init();
     lv_disp_draw_buf_init(&draw_buf, disp_draw_buf, NULL, 120 * 800);
     lv_disp_drv_init(&disp_drv);
@@ -397,37 +443,56 @@ void setup()
     disp_drv.flush_cb = my_disp_flush;
     disp_drv.draw_buf = &draw_buf;
     lv_disp_drv_register(&disp_drv);
+    LOG_I(TAG_MAIN, "LVGL initialized OK (800x480)");
 
     // Put On the Backlight of the screen.
     #ifdef TFT_BL
       pinMode(TFT_BL, OUTPUT);
       digitalWrite(TFT_BL, HIGH);
+      LOG_I(TAG_MAIN, "Backlight ON (pin %d)", TFT_BL);
     #endif
 
     // Initialize UI and Vehicle State
+    LOG_I(TAG_MAIN, "Initializing UI...");
     ui_init();
+    LOG_I(TAG_MAIN, "UI initialized OK");
+
+    LOG_I(TAG_MAIN, "Initializing CarState...");
     can.state().init();
+    LOG_I(TAG_MAIN, "CarState initialized OK");
 
     // Initialize CAN Logger (SD Card)
+    LOG_I(TAG_LOGGER, "Initializing SD card logger...");
     if (canLogger.begin()) {
+        LOG_I(TAG_LOGGER, "SD card initialized OK - starting logging");
         canLogger.startLogging();
+        LOG_I(TAG_LOGGER, "Logging started");
+    } else {
+        LOG_E(TAG_LOGGER, "SD card initialization FAILED - logging disabled");
     }
 
+    LOG_I(TAG_CAN, "Initializing CAN bus (TX=GPIO20, RX=GPIO19, 500kbps)...");
     if (!can.begin()) {
+        LOG_E(TAG_CAN, "CAN bus initialization FAILED - halting");
         Serial.println("CAN init failed");
         while (1) {
             delay(1000);
         }
     }
+    LOG_I(TAG_CAN, "CAN bus initialized OK");
 
     // CAN message Handler. Communicates with Vehicule State
     can.onFrame(handleCANFrame);
+    LOG_I(TAG_CAN, "CAN frame handler registered");
 
     // Assigns Parallel Tasks
-    xTaskCreatePinnedToCore(canTask, "CAN Task", 4096, NULL, 2, NULL, 1); // Handle reception of CAN Frames and update the state of the car
-    xTaskCreatePinnedToCore(calculationTask, "Calc Task", 4096, NULL, 1, NULL, 1); // All the calculations to retrieve datas that are not provided by CAN Bus
-    xTaskCreatePinnedToCore(uiTask, "UI Task", 8192, NULL, 1, NULL, 0); // Update the display with new Vehicule State
-    xTaskCreatePinnedToCore(loggerTask, "Logger Task", 4096, NULL, 0, NULL, 0); // Store all the CAN Frames received in CSV
+    LOG_I(TAG_MAIN, "Creating RTOS tasks...");
+    xTaskCreatePinnedToCore(canTask,         "CAN Task",    4096, NULL, 2, NULL, 1);
+    xTaskCreatePinnedToCore(calculationTask, "Calc Task",   4096, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(uiTask,          "UI Task",     8192, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(loggerTask,      "Logger Task", 4096, NULL, 0, NULL, 0);
+    LOG_I(TAG_MAIN, "All tasks created - setup complete");
+    LOG_I(TAG_MAIN, "Free heap after setup: %u bytes", esp_get_free_heap_size());
 }
 
 /**
