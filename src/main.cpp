@@ -32,12 +32,15 @@
 #include "CarStateUI.hpp"            // UI update functions
 #include "CANLogger.hpp"         // CAN logging (SD Card via SD_MMC)
 #include "Debug.hpp"             // Debug logging macros
+#include <Wire.h>                // CH422G IO expander via direct I2C (EXIO5=USB_SEL → CAN/USB switch)
 
 // ================================================================================
 // CONFIGURATION CONSTANTS
 // ================================================================================
 
-#define TFT_BL 2                     // Display backlight pin
+// NOTE: GPIO2 is actually LCD R4 data line. Backlight is controlled by CH422G EXIO2 (DISP).
+//       The #define below is kept for the #ifdef guard but the real backlight comes from the expander.
+#define TFT_BL 2                     // (unused - backlight driven by CH422G EXIO2)
 
 // Energy calculation constants
 constexpr int32_t ALPHA_FIXED = 154;           // Smoothing filter weight (15%)
@@ -138,6 +141,43 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
 CANSocket can;
 CarStateUI car_ui(can.state());
 CANLogger canLogger;
+
+// ================================================================================
+// IO EXPANDER (CH422G) - controls USB/CAN mux and display signals via I2C
+//
+// EXIO1 = CTP_RST  → HIGH = touch controller out of reset
+// EXIO2 = DISP     → HIGH = backlight ON
+// EXIO3 = LCD_RST  → HIGH = LCD out of reset
+// EXIO4 = SDCS     → HIGH = SD card deselected (active-low CS)
+// EXIO5 = USB_SEL  → HIGH = CAN mode  /  LOW = USB mode  ← THIS IS WHY CAN WAS SILENT
+//
+// CH422G register map (7-bit addresses, source: esp_io_expander_ch422g.c):
+//   CH422G_REG_WR_SET = 0x48>>1 = 0x24  → config byte (bit 0 = IO_OE: enable IO output)
+//   CH422G_REG_WR_IO  = 0x70>>1 = 0x38  → output byte for IO0-IO7 (1=HIGH, 0=LOW)
+// ================================================================================
+static void initCH422G() {
+    Wire.begin(8, 9); // SDA=GPIO8, SCL=GPIO9
+
+    // Step 1: enable IO0-IO7 as outputs (IO_OE = bit 0 of WR_SET register)
+    Wire.beginTransmission(0x24); // CH422G_REG_WR_SET
+    Wire.write(0x01);             // IO_OE = 1
+    uint8_t err1 = Wire.endTransmission();
+
+    // Step 2: drive all IO0-IO7 HIGH
+    //   EXIO2 (DISP)    = 1 → backlight ON
+    //   EXIO3 (LCD_RST) = 1 → LCD out of reset
+    //   EXIO4 (SDCS)    = 1 → SD card deselected (active-low)
+    //   EXIO5 (USB_SEL) = 1 → CAN mode (NOT USB mode) ← the key fix
+    Wire.beginTransmission(0x38); // CH422G_REG_WR_IO
+    Wire.write(0xFF);             // all IO0-IO7 HIGH
+    uint8_t err2 = Wire.endTransmission();
+
+    if (err1 == 0 && err2 == 0) {
+        LOG_I(TAG_MAIN, "CH422G OK - EXIO5 HIGH → CAN transceiver enabled");
+    } else {
+        LOG_E(TAG_MAIN, "CH422G FAILED (err1=%d err2=%d) - CAN may stay in USB mode!", err1, err2);
+    }
+}
 static int32_t filteredConsumption_cWhKm = 0; // Smoothed consumption value
 
 /**
@@ -426,6 +466,13 @@ void setup()
     LOG_I(TAG_MAIN, "========================================");
     LOG_I(TAG_MAIN, "Free heap at start: %u bytes", esp_get_free_heap_size());
 
+    // ── IO Expander (CH422G) ─────────────────────────────────────────────────
+    // MUST be first: EXIO5 (USB_SEL) defaults LOW (USB mode) on power-on,
+    // which physically disconnects the TJA1051T CAN transceiver from IO19/IO20.
+    // begin() sets every EXIO pin HIGH → CAN mode enabled, backlight on, LCD out of reset.
+    LOG_I(TAG_MAIN, "Initializing CH422G IO expander (SDA=GPIO8, SCL=GPIO9)...");
+    initCH422G();
+
     // Initialize display hardware
     LOG_I(TAG_MAIN, "Initializing display...");
     lcd.begin();
@@ -445,12 +492,9 @@ void setup()
     lv_disp_drv_register(&disp_drv);
     LOG_I(TAG_MAIN, "LVGL initialized OK (800x480)");
 
-    // Put On the Backlight of the screen.
-    #ifdef TFT_BL
-      pinMode(TFT_BL, OUTPUT);
-      digitalWrite(TFT_BL, HIGH);
-      LOG_I(TAG_MAIN, "Backlight ON (pin %d)", TFT_BL);
-    #endif
+    // Backlight is controlled by CH422G EXIO2 (DISP), already set HIGH by ioExpander->begin().
+    // The GPIO2 pin is LCD R4 data - do NOT drive it as a GPIO output.
+    LOG_I(TAG_MAIN, "Backlight ON (via CH422G EXIO2/DISP)");
 
     // Initialize UI and Vehicle State
     LOG_I(TAG_MAIN, "Initializing UI...");
