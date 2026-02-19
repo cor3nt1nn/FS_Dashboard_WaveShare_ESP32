@@ -53,7 +53,22 @@ void CANSocket::loop() {
       LOG_W(TAG_CAN, "Frame received but no handler registered! ID=0x%08X", msg.identifier);
     }
   } else if (result == ESP_ERR_TIMEOUT) {
-    LOG_EVERY_MS(5000, LOG_W(TAG_CAN, "No CAN frame received in the last 5s - bus silent?"));
+    LOG_EVERY_MS(5000, {
+      LOG_W(TAG_CAN, "No CAN frame received in the last 5s - bus silent?");
+      twai_status_info_t status;
+      if (twai_get_status_info(&status) == ESP_OK) {
+        LOG_W(TAG_CAN, "TWAI status: state=%d  rx_err=%lu  tx_err=%lu  rx_queue=%lu  tx_queue=%lu  arb_lost=%lu  bus_err=%lu",
+          (int)status.state,
+          status.rx_error_counter,
+          status.tx_error_counter,
+          status.msgs_to_rx,
+          status.msgs_to_tx,
+          status.arb_lost_count,
+          status.bus_error_count);
+      } else {
+        LOG_W(TAG_CAN, "TWAI status: failed to read status info");
+      }
+    });
   } else {
     LOG_E(TAG_CAN, "twai_receive error: 0x%X", result);
   }
