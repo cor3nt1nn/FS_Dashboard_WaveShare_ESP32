@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 
-#define DEBUG_ENABLED
+// #define DEBUG_ENABLED
 
 #define LOG_LEVEL_INFO
 #define LOG_LEVEL_WARN

@@ -36,31 +36,11 @@
 
 // ================================================================================
 // SERIAL CAN DATA INPUT
-// Receive CAN frames over USB (Type_C1 native USB CDC = Serial) in the format:
-//   ID:DATA\n
-//   ID   = CAN identifier in hex, up to 8 digits  (e.g. 18010001)
-//   DATA = payload bytes in hex, 2 chars per byte, little-endian (e.g. E803 → byte[0]=0xE8, byte[1]=0x03)
-//
-// Examples:
-//   18010001:E803        → throttle  = 0x03E8 = 1000 → 100.0%
-//   18010003:6401        → speed     = 0x0164 = 356  → 35.6 km/h
-//   18020001:A02E        → voltage   = 0x2EA0 = 11936 → 119.36 V
-//   18020002:9001        → current   = 0x0190 = 400  → 4.00 A
-//   18030001:E803        → SOC       = 0x03E8 = 1000 → 100.0%
-//   18030002:FA00        → batt temp = 0x00FA = 250  → 25.0°C
-//   18030003:C201        → mot temp  = 0x01C2 = 450  → 45.0°C
-//   18030004:7A01        → inv temp  = 0x017A = 378  → 37.8°C
-//
-// Debug logs go to Serial0 (Type_C2 UART/CH340, COM port).
-// ================================================================================
+// Receive CAN frames over USB in the format: ID:DATA\n
 
 // ================================================================================
 // CONFIGURATION CONSTANTS
 // ================================================================================
-
-// NOTE: GPIO2 is actually LCD R4 data line. Backlight is controlled by CH422G EXIO2 (DISP).
-//       The #define below is kept for the #ifdef guard but the real backlight comes from the expander.
-#define TFT_BL 2                     // (unused - backlight driven by CH422G EXIO2)
 
 // Energy calculation constants
 constexpr int32_t ALPHA_FIXED = 154;           // Smoothing filter weight (15%)
@@ -162,38 +142,16 @@ CANSocket can;
 CarStateUI car_ui(can.state());
 CANLogger canLogger;
 
-// ================================================================================
-// IO EXPANDER (CH422G) - controls USB/CAN mux and display signals via I2C
-//
-// EXIO1 = CTP_RST  → HIGH = touch controller out of reset
-// EXIO2 = DISP     → HIGH = backlight ON
-// EXIO3 = LCD_RST  → HIGH = LCD out of reset
-// EXIO4 = SDCS     → HIGH = SD card deselected (active-low CS)
-// EXIO5 = USB_SEL  → HIGH = CAN mode  /  LOW = USB mode (GPIO19/20 native USB OTG)
-//
-// We use LOW here: data is received via native USB CDC (Type_C1), not CAN bus.
-// Debug logs go to UART0/Serial0 (Type_C2, CH340 chip).
-//
-// CH422G register map (7-bit addresses, source: esp_io_expander_ch422g.c):
-//   CH422G_REG_WR_SET = 0x48>>1 = 0x24  → config byte (bit 0 = IO_OE: enable IO output)
-//   CH422G_REG_WR_IO  = 0x70>>1 = 0x38  → output byte for IO0-IO7 (1=HIGH, 0=LOW)
-// ================================================================================
+
 static void initCH422G() {
     Wire.begin(8, 9); // SDA=GPIO8, SCL=GPIO9
 
-    // Step 1: enable IO0-IO7 as outputs (IO_OE = bit 0 of WR_SET register)
-    Wire.beginTransmission(0x24); // CH422G_REG_WR_SET
-    Wire.write(0x01);             // IO_OE = 1
+    Wire.beginTransmission(0x24);
+    Wire.write(0x01);
     uint8_t err1 = Wire.endTransmission();
 
-    // Step 2: set IO pins
-    //   EXIO2 (DISP)    = 1 → backlight ON
-    //   EXIO3 (LCD_RST) = 1 → LCD out of reset
-    //   EXIO4 (SDCS)    = 1 → SD card deselected (active-low)
-    //   EXIO5 (USB_SEL) = 0 → USB native mode (GPIO19/20 → Type_C1 USB OTG)
-    //                         0xFF & ~(1<<5) = 0xDF
-    Wire.beginTransmission(0x38); // CH422G_REG_WR_IO
-    Wire.write(0xDF);             // all HIGH except EXIO5 (bit 5) = LOW → USB mode
+    Wire.beginTransmission(0x38);
+    Wire.write(0xDF);
     uint8_t err2 = Wire.endTransmission();
 
     if (err1 == 0 && err2 == 0) {
@@ -424,8 +382,8 @@ static void processSerialCANInput() {
   static char lineBuf[32];
   static uint8_t lineLen = 0;
 
-  while (Serial.available()) {
-    char c = (char)Serial.read();
+  while (Serial0.available()) {
+    char c = (char)Serial0.read();
     if (c == '\n' || c == '\r') {
       if (lineLen == 0) continue;
       lineBuf[lineLen] = '\0';
@@ -534,19 +492,14 @@ void uiTask(void *pvParameters) {
  */
 void setup()
 {
-    Serial0.begin(9600);  // UART0 → Type_C2 (CH340) → debug logs via Serial0
-    Serial.begin(0);      // USB CDC → Type_C1 (native USB) → CAN data input
+    Serial0.begin(115200);  // UART0 → Type_C2 (CH340) → debug logs via Serial0
+    Serial.begin(115200);      // USB CDC → Type_C1 (native USB) → CAN data input
     delay(200); // Give serial time to come up before first logs
 
     LOG_I(TAG_MAIN, "========================================");
     LOG_I(TAG_MAIN, " Sigma Racing Dashboard - Booting...");
     LOG_I(TAG_MAIN, "========================================");
     LOG_I(TAG_MAIN, "Free heap at start: %u bytes", esp_get_free_heap_size());
-
-    // ── IO Expander (CH422G) ─────────────────────────────────────────────────
-    // MUST be first: EXIO5 (USB_SEL) defaults LOW (USB mode) on power-on,
-    // which physically disconnects the TJA1051T CAN transceiver from IO19/IO20.
-    // begin() sets every EXIO pin HIGH → CAN mode enabled, backlight on, LCD out of reset.
     LOG_I(TAG_MAIN, "Initializing CH422G IO expander (SDA=GPIO8, SCL=GPIO9)...");
     initCH422G();
 
@@ -569,8 +522,6 @@ void setup()
     lv_disp_drv_register(&disp_drv);
     LOG_I(TAG_MAIN, "LVGL initialized OK (800x480)");
 
-    // Backlight is controlled by CH422G EXIO2 (DISP), already set HIGH by ioExpander->begin().
-    // The GPIO2 pin is LCD R4 data - do NOT drive it as a GPIO output.
     LOG_I(TAG_MAIN, "Backlight ON (via CH422G EXIO2/DISP)");
 
     // Initialize UI and Vehicle State
